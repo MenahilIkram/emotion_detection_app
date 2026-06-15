@@ -4,36 +4,33 @@ from transformers import AutoTokenizer, TFAutoModelForSequenceClassification
 import numpy as np
 
 st.set_page_config(
-    page_title="AI Emotion Detector",
+    page_title="AI Sentiment Detector",
     page_icon="😊",
     layout="centered"
 )
 
 @st.cache_resource
 def load_model():
-    model_name = "bhadresh-savani/distilbert-base-uncased-emotion"
+    model_name = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 
     tokenizer = AutoTokenizer.from_pretrained(model_name)
+
     model = TFAutoModelForSequenceClassification.from_pretrained(
-        model_name,
-        from_pt=True
+        model_name
     )
 
     return tokenizer, model
 
 tokenizer, model = load_model()
 
-emotion_labels = [
-    "sadness",
-    "joy",
-    "love",
-    "anger",
-    "fear",
-    "surprise"
+labels = [
+    "negative",
+    "neutral",
+    "positive"
 ]
 
-st.title("😊 AI Emotion Detection App")
-st.write("Enter any text and detect the emotion using a Hugging Face TensorFlow model.")
+st.title("😊 AI Sentiment Detection App")
+st.write("Enter any text and detect whether the sentiment is Positive, Neutral, or Negative.")
 
 user_text = st.text_area(
     "Enter Text",
@@ -41,10 +38,11 @@ user_text = st.text_area(
     placeholder="Type something here..."
 )
 
-if st.button("Detect Emotion"):
+if st.button("Analyze Sentiment"):
 
     if user_text.strip() == "":
         st.warning("Please enter some text.")
+
     else:
 
         inputs = tokenizer(
@@ -64,11 +62,12 @@ if st.button("Detect Emotion"):
 
         predicted_index = np.argmax(probabilities)
 
-        predicted_emotion = emotion_labels[predicted_index]
+        predicted_label = labels[predicted_index]
+
         confidence = probabilities[predicted_index] * 100
 
         st.success(
-            f"Detected Emotion: {predicted_emotion.upper()}"
+            f"Detected Sentiment: {predicted_label.upper()}"
         )
 
         st.metric(
@@ -76,18 +75,18 @@ if st.button("Detect Emotion"):
             f"{confidence:.2f}%"
         )
 
-        st.subheader("Emotion Probabilities")
+        st.subheader("Sentiment Probabilities")
 
         chart_data = {
-            emotion_labels[i]: float(probabilities[i])
-            for i in range(len(emotion_labels))
+            labels[i]: float(probabilities[i])
+            for i in range(len(labels))
         }
 
         st.bar_chart(chart_data)
 
         st.subheader("Detailed Scores")
 
-        for emotion, score in chart_data.items():
+        for label, score in chart_data.items():
             st.write(
-                f"**{emotion.capitalize()}** : {score*100:.2f}%"
+                f"**{label.capitalize()}** : {score*100:.2f}%"
             )
