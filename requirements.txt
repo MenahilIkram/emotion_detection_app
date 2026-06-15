@@ -1,7 +1,7 @@
-streamlit==1.45.1
-tensorflow==2.16.1
-transformers==4.41.2
-sentencepiece==0.2.0
-numpy==1.26.4
-protobuf==4.25.3
-tf-keras==2.16.0
+streamlit
+tensorflow-cpu
+transformers
+numpy
+sentencepiece
+protobuf
+tf-keras
