@@ -1,267 +1,203 @@
 import streamlit as st
-import PyPDF2
-from transformers import pipeline
+from transformers import pipeline, BlipProcessor, BlipForConditionalGeneration
+from PIL import Image
+import torch
 import io
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="PDF Chatbot",
-    page_icon="📄",
+    page_title="Image to Article",
+    page_icon="✍️",
     layout="centered"
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background: #f7f4ef; }
 
-    .main {
-        background-color: #0f1117;
-    }
+.hero {
+    text-align: center;
+    padding: 2.5rem 1rem 1rem;
+}
+.hero h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 2.6rem;
+    color: #1a1a2e;
+    margin-bottom: 0.3rem;
+}
+.hero h1 span { color: #c0392b; }
+.hero p { color: #6b6b80; font-size: 1rem; }
 
-    .stApp {
-        background: linear-gradient(135deg, #0f1117 0%, #1a1d27 100%);
-    }
+.step-badge {
+    display: inline-block;
+    background: #1a1a2e;
+    color: #f7f4ef;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 0.25rem 0.7rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+}
 
-    .hero {
-        text-align: center;
-        padding: 2.5rem 1rem 1.5rem;
-    }
+.caption-box {
+    background: #1a1a2e;
+    color: #f7f4ef;
+    border-radius: 10px;
+    padding: 1rem 1.3rem;
+    font-size: 0.97rem;
+    margin: 1rem 0;
+    line-height: 1.6;
+}
+.caption-box span { color: #e74c3c; font-weight: 600; }
 
-    .hero h1 {
-        font-size: 2.4rem;
-        font-weight: 700;
-        color: #ffffff;
-        margin-bottom: 0.4rem;
-        letter-spacing: -0.5px;
-    }
+.article-box {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 2rem 2.2rem;
+    margin-top: 1.5rem;
+    border-left: 4px solid #c0392b;
+    box-shadow: 0 2px 16px rgba(0,0,0,0.07);
+    color: #1a1a2e;
+    font-family: 'Playfair Display', serif;
+    font-size: 1.05rem;
+    line-height: 1.9;
+}
 
-    .hero span.accent {
-        color: #7c6dfa;
-    }
+div[data-testid="stFileUploader"] {
+    background: #ffffff;
+    border: 2px dashed #c0392b;
+    border-radius: 12px;
+    padding: 1rem;
+}
 
-    .hero p {
-        color: #8b8fa8;
-        font-size: 1rem;
-        margin-top: 0.3rem;
-    }
+.stButton > button {
+    background: #1a1a2e !important;
+    color: #f7f4ef !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 0.65rem 1.6rem !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    width: 100%;
+    transition: background 0.2s;
+}
+.stButton > button:hover { background: #c0392b !important; }
 
-    .chat-bubble-user {
-        background: #7c6dfa;
-        color: white;
-        padding: 0.75rem 1.1rem;
-        border-radius: 18px 18px 4px 18px;
-        margin: 0.5rem 0 0.5rem auto;
-        max-width: 80%;
-        width: fit-content;
-        font-size: 0.95rem;
-        line-height: 1.5;
-    }
+.stSelectbox > div > div {
+    background: #ffffff !important;
+    border-radius: 8px !important;
+    border: 1px solid #ddd !important;
+}
 
-    .chat-bubble-bot {
-        background: #1e2130;
-        color: #d4d6e4;
-        padding: 0.75rem 1.1rem;
-        border-radius: 18px 18px 18px 4px;
-        margin: 0.5rem auto 0.5rem 0;
-        max-width: 80%;
-        width: fit-content;
-        font-size: 0.95rem;
-        line-height: 1.5;
-        border: 1px solid #2a2d3e;
-    }
-
-    .status-box {
-        background: #1e2130;
-        border: 1px solid #2a2d3e;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        margin: 1rem 0;
-        color: #8b8fa8;
-        font-size: 0.88rem;
-    }
-
-    .status-box strong {
-        color: #7c6dfa;
-    }
-
-    div[data-testid="stFileUploader"] {
-        background: #1e2130;
-        border: 2px dashed #2a2d3e;
-        border-radius: 12px;
-        padding: 1rem;
-    }
-
-    div[data-testid="stFileUploader"]:hover {
-        border-color: #7c6dfa;
-    }
-
-    .stTextInput > div > div > input {
-        background: #1e2130 !important;
-        border: 1px solid #2a2d3e !important;
-        border-radius: 10px !important;
-        color: #ffffff !important;
-        padding: 0.7rem 1rem !important;
-    }
-
-    .stTextInput > div > div > input:focus {
-        border-color: #7c6dfa !important;
-        box-shadow: 0 0 0 2px rgba(124,109,250,0.2) !important;
-    }
-
-    .stButton > button {
-        background: #7c6dfa !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 10px !important;
-        padding: 0.6rem 1.4rem !important;
-        font-weight: 600 !important;
-        width: 100%;
-        transition: opacity 0.2s;
-    }
-
-    .stButton > button:hover {
-        opacity: 0.88 !important;
-    }
-
-    .stSpinner > div {
-        border-top-color: #7c6dfa !important;
-    }
-
-    footer {visibility: hidden;}
-    #MainMenu {visibility: hidden;}
+footer { visibility: hidden; }
+#MainMenu { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Load QA model (cached) ────────────────────────────────────────────────────
+# ── Load models (cached) ──────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def load_qa_model():
+def load_captioning_model():
+    processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+    return processor, model
+
+@st.cache_resource(show_spinner=False)
+def load_text_generator():
     return pipeline(
-        "question-answering",
-        model="deepset/roberta-base-squad2"
+        "text2text-generation",
+        model="google/flan-t5-base"
     )
 
 
-# ── Extract text from PDF ─────────────────────────────────────────────────────
-def extract_pdf_text(uploaded_file):
-    reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.read()))
-    text = ""
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
-    return text.strip()
+# ── Caption image ─────────────────────────────────────────────────────────────
+def caption_image(image: Image.Image, processor, model) -> str:
+    inputs = processor(image, return_tensors="pt")
+    with torch.no_grad():
+        out = model.generate(**inputs, max_new_tokens=60)
+    return processor.decode(out[0], skip_special_tokens=True)
 
 
-# ── Answer question ───────────────────────────────────────────────────────────
-def get_answer(qa_model, context, question):
-    # roberta has a 512-token limit; chunk context if too long
-    max_chars = 3000
-    if len(context) > max_chars:
-        # slide a window, pick best-scoring answer
-        best = None
-        for i in range(0, len(context), max_chars - 200):
-            chunk = context[i: i + max_chars]
-            try:
-                result = qa_model(question=question, context=chunk)
-                if best is None or result["score"] > best["score"]:
-                    best = result
-            except Exception:
-                continue
-        return best
-    else:
-        return qa_model(question=question, context=context)
-
-
-# ── Session state ─────────────────────────────────────────────────────────────
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "pdf_text" not in st.session_state:
-    st.session_state.pdf_text = ""
-if "pdf_name" not in st.session_state:
-    st.session_state.pdf_name = ""
+# ── Generate article ──────────────────────────────────────────────────────────
+def generate_article(generator, caption: str, style: str) -> str:
+    style_prompts = {
+        "Blog Post": f"Write a detailed and engaging blog post about: {caption}. Include an introduction, main points, and conclusion.",
+        "News Article": f"Write a professional news article about: {caption}. Use journalistic style with facts.",
+        "Social Media": f"Write creative and catchy social media captions about: {caption}. Make it trendy and engaging.",
+        "Academic": f"Write a formal academic article discussing: {caption}. Include analysis and structured paragraphs.",
+    }
+    prompt = style_prompts.get(style, style_prompts["Blog Post"])
+    result = generator(
+        prompt,
+        max_new_tokens=300,
+        do_sample=True,
+        temperature=0.85,
+        repetition_penalty=1.3
+    )
+    return result[0]["generated_text"]
 
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="hero">
-    <h1>📄 PDF <span class="accent">Chatbot</span></h1>
-    <p>Upload any PDF and ask questions — get instant answers from your document.</p>
+    <h1>Image to <span>Article</span></h1>
+    <p>Upload any image — get a full article written automatically.</p>
 </div>
 """, unsafe_allow_html=True)
 
-# Upload section
-uploaded_file = st.file_uploader("Upload your PDF", type=["pdf"], label_visibility="collapsed")
+st.markdown('<div class="step-badge">Step 1 — Upload Image</div>', unsafe_allow_html=True)
+uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed")
 
-if uploaded_file:
-    if uploaded_file.name != st.session_state.pdf_name:
-        with st.spinner("Reading PDF..."):
-            text = extract_pdf_text(uploaded_file)
-        if text:
-            st.session_state.pdf_text = text
-            st.session_state.pdf_name = uploaded_file.name
-            st.session_state.chat_history = []
-            st.success(f"✅ **{uploaded_file.name}** loaded — {len(text):,} characters extracted.")
-        else:
-            st.error("Could not extract text. Try a different PDF.")
+if uploaded:
+    image = Image.open(io.BytesIO(uploaded.read())).convert("RGB")
+    st.image(image, use_column_width=True, caption="Your uploaded image")
 
-    if st.session_state.pdf_text:
+    st.markdown('<br><div class="step-badge">Step 2 — Choose Article Style</div>', unsafe_allow_html=True)
+    style = st.selectbox(
+        "Style",
+        ["Blog Post", "News Article", "Social Media", "Academic"],
+        label_visibility="collapsed"
+    )
+
+    st.markdown('<br><div class="step-badge">Step 3 — Generate</div>', unsafe_allow_html=True)
+    if st.button("✍️ Write Article"):
+
+        with st.spinner("Understanding your image..."):
+            processor, caption_model = load_captioning_model()
+            caption = caption_image(image, processor, caption_model)
+
         st.markdown(f"""
-        <div class="status-box">
-            📂 Active document: <strong>{st.session_state.pdf_name}</strong>
-            &nbsp;·&nbsp; {len(st.session_state.pdf_text):,} chars
+        <div class="caption-box">
+            🔍 <span>Image understood as:</span> {caption}
         </div>
         """, unsafe_allow_html=True)
 
-        # Chat history
-        if st.session_state.chat_history:
-            st.markdown("---")
-            for turn in st.session_state.chat_history:
-                st.markdown(f'<div class="chat-bubble-user">🧑 {turn["question"]}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="chat-bubble-bot">🤖 {turn["answer"]}</div>', unsafe_allow_html=True)
-            st.markdown("---")
+        with st.spinner("Writing your article..."):
+            generator = load_text_generator()
+            article = generate_article(generator, caption, style)
 
-        # Input
-        with st.form("qa_form", clear_on_submit=True):
-            question = st.text_input(
-                "Ask a question",
-                placeholder="e.g. What is the main topic of this document?",
-                label_visibility="collapsed"
-            )
-            submitted = st.form_submit_button("Ask →")
+        st.markdown(f"""
+        <div class="article-box">
+            {article}
+        </div>
+        """, unsafe_allow_html=True)
 
-        if submitted and question.strip():
-            with st.spinner("Finding answer..."):
-                qa_model = load_qa_model()
-                result = get_answer(qa_model, st.session_state.pdf_text, question.strip())
-
-            if result and result.get("score", 0) > 0.05:
-                answer = result["answer"]
-                confidence = round(result["score"] * 100, 1)
-                display_answer = f"{answer}  *(confidence: {confidence}%)*"
-            else:
-                display_answer = "I couldn't find a clear answer in the document. Try rephrasing your question."
-
-            st.session_state.chat_history.append({
-                "question": question.strip(),
-                "answer": display_answer
-            })
-            st.rerun()
-
-        # Clear chat button
-        if st.session_state.chat_history:
-            if st.button("🗑️ Clear Chat"):
-                st.session_state.chat_history = []
-                st.rerun()
+        st.download_button(
+            label="⬇️ Download Article",
+            data=article,
+            file_name="article.txt",
+            mime="text/plain"
+        )
 
 else:
     st.markdown("""
-    <div class="status-box" style="text-align:center; padding: 2rem;">
-        ⬆️ Upload a PDF above to get started
+    <div style="text-align:center; padding: 2.5rem; background:#fff; border-radius:12px; color:#aaa; margin-top:1rem;">
+        ⬆️ Upload an image above to get started
     </div>
     """, unsafe_allow_html=True)
